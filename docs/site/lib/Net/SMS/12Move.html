@@ -63,12 +63,12 @@
 www.12move.nl. It supports multiple user accounts. It can also maintain a
 persistent state hash in which the state of the user accounts is saved so
 that login's aren't always necessary etc. Unfortunately this web based
-service takes a few minutes to send an SMS, but a least it works (for now).</P>
+service takes a few minutes to send an SMS, but at least it works (for now).</P>
 <P>
 <HR>
 <H1><A NAME="class methods">CLASS METHODS</A></H1>
 <DL>
-<DT><STRONG><A NAME="item_new">new ('USERS' =&gt; $users, 'STATE' =&gt; $state, 'PROXY' =&gt; $proxy, 'VERBOSE' =&gt; $level);</A></STRONG><BR>
+<DT><STRONG><A NAME="item_new">new ('USERS' =&gt; $users, 'STATE' =&gt; $state, 'PROXY' =&gt; $proxy, 'PROXY_AUTH' =&gt; [$usr,$pwd], 'VERBOSE' =&gt; $level, 'LOGFILE' =&gt; $filename);</A></STRONG><BR>
 <DD>
 Returns a new Net::SMS::12Move object.
 <P><STRONG>Parameters:</STRONG></P>
@@ -81,9 +81,14 @@ Net::SMS::12Move object. It is advisable to used a tied hash so that the
 hash can be saved to and read from a file. See <A HREF="../../../../site/lib/Tie/Persistent.html">the Tie::Persistent manpage</A>.</P>
 <P><STRONG>PROXY</STRONG> Optional. If specified, then it must be a HTTP proxy URL such as
 'http://www.myproxy.com:8080/'. Default is no proxy.</P>
+<P><STRONG>PROXY_AUTH</STRONG> Optional. If specified, then it must be a reference to an
+array with elements username, password for proxies that require
+authentication. Default is no proxy authentication.</P>
 <P><STRONG>VERBOSE</STRONG> Optional. If specified, it must contain an integer between 0 and
 2 where 0 is no verbosity at all, 1 means print only warnings to STDERR,
 and 2 means print all messages to STDERR. Default value is 1.</P>
+<P><STRONG>LOGFILE</STRONG> Optional. If specified, it must contain the name of the file to
+log all HTTP requests and responses too. Default is no logging.</P>
 <P></P></DL>
 <P>
 <HR>
@@ -102,6 +107,10 @@ message to send.
 <DT><STRONG><A NAME="item_Version_0%2E01_2002%2D01%2D15">Version 0.01  2002-01-15</A></STRONG><BR>
 <DD>
 Initial version.
+<P></P>
+<DT><STRONG><A NAME="item_Version_0%2E02_2002%2D01%2D17">Version 0.02  2002-01-17</A></STRONG><BR>
+<DD>
+Added support for proxy authentication and HTTP logging.
 <P></P></DL>
 <P>
 <HR>

@@ -9,9 +9,11 @@ use Carp;
 use HTTP::Request::Common qw(POST GET);
 use LWP::UserAgent;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 my $MAX_TEXT_LENGTH = 130;
+
+my $counter = 0;
 
 1;
 
@@ -23,7 +25,9 @@ my $MAX_TEXT_LENGTH = 130;
 #               STATE: Optional. Reference to a tied hash for maintaining persistent state information.
 #		       Tie it to Tie::Persistent or Apache::Session::File for example.
 #		PROXY: Optional. HTTP proxy such as: http://localhost:8080/
+#		PROXY_AUTH Optional. Array ref containing proxy username, password.
 #		VERBOSE: Optional. 0 == nothing, 1 == warnings to STDERR, 2 == all messages to STDERR. Default == 1.
+#		LOGFILE: Optional. If specified, then all HTTP requests and responses are appended to this file.
 ####
 sub new {
  my $proto = shift;
@@ -50,10 +54,20 @@ sub new {
  $self->{'-users'} = $param_users;
  $self->{'_state'} = defined($params{'STATE'}) ? $params{'STATE'} : {};
  $self->{'_verbose'} = defined($params{'VERBOSE'}) ? $params{'VERBOSE'} : 1;
+ if (defined($params{'LOGFILE'})) {
+  $self->{'_logfile'} = $params{'LOGFILE'};
+ }
  my $ua = new LWP::UserAgent();
  $ua->agent('Mozilla/4.0 (compatible; MSIE 4.01; Windows NT)');
  if (defined($params{'PROXY'})) {
   $ua->proxy(['http'],$params{'PROXY'});
+  if (defined($params{'PROXY_AUTH'})) {
+   my $auth = $params{'PROXY_AUTH'};
+   unless((ref($auth) eq 'ARRAY') && (@{$auth} == 2) && defined($auth->[0]) && defined($auth->[1])) {
+    croak("PROXY_AUTH parameter, when defined, must be a reference to an array with elements username, password.\n");
+   }
+   $self->{'_proxy_auth'} = $auth;
+  }
  }
  $self->{'_ua'} = $ua;
 
@@ -126,14 +140,20 @@ sub _login {
  my $cookies = shift;
  my $ua = $self->{'_ua'};
  my $verbose = $self->{'_verbose'};
+ my $proxy_auth = $self->{'_proxy_auth'};
  my $request = POST('http://www.12move.nl/sms/login.asp',
                     'Content' => ['fase' => 'login',
                                   'username' => $uid,
                                   'password' => $pwd]);
+ if (defined($proxy_auth)) {
+  $request->proxy_authorization_basic($proxy_auth->[0], $proxy_auth->[1]);
+ }
+ $self->_log_request($request);
  if ($verbose >= 2) {
   warn "Trying to login.\n";
  }
  my $response = $ua->request($request);
+ $self->_log_response($response);
  unless (substr($response->code,0,1) eq '3') {
   if ($verbose >= 1) {
    warn 'Login failed. Expected response code 3xx but got response code: ' . $response->code . "\n";
@@ -151,10 +171,15 @@ sub _login {
  }
  # Get dbid
  $request = GET("http://www.12move.nl/sms/smscenter.asp?fase=create&username=$uid");
+ if (defined($proxy_auth)) {
+  $request->proxy_authorization_basic($proxy_auth->[0], $proxy_auth->[1]);
+ }
+ $self->_log_request($request);
  if ($verbose >= 2) {
   warn "Getting dbid.\n";
  }
  $response = $ua->request($request);
+ $self->_log_response($response);
  unless((substr($response->code(),0,1) eq '2') && ($response->content() =~ /<input type="hidden" name="dbid" value="(\w+)">/o)) {
   if ($verbose >= 1) {
    warn "Login failed (getting dbid). Credentials perhaps incorrect.\n";
@@ -184,6 +209,7 @@ sub send_text {
  my $login = 1;
  my $dbid;
  my $verbose = $self->{'_verbose'};
+ my $proxy_auth = $self->{'_proxy_auth'};
  $self->_get_account(\$uid,\$pwd);
  my $userstate = $self->_get_user_state($uid);
  unless($dbid = $userstate->{'dbid'}) {
@@ -207,10 +233,15 @@ sub send_text {
                     'Content' => ['ToNr' => $phn,
                                   'tekst' => $text,
                                   'dbid' => $dbid]);
+ if (defined($proxy_auth)) {
+  $request->proxy_authorization_basic($proxy_auth->[0], $proxy_auth->[1]);
+ }
+ $self->_log_request($request);
  if ($verbose >= 2) {
   warn "Sending 'send SMS' request using uid=$uid.\n";
  }
  my $response = $ua->request($request);
+ $self->_log_response($response);
  if (substr($response->code(),0,1) eq '2') {
   if ($verbose >= 2) {
    warn "Send OK.\n";
@@ -231,10 +262,15 @@ sub send_text {
                    'Content' => ['ToNr' => $phn,
                                  'tekst' => $text,
                                  'dbid' => $dbid]);
+   if (defined($proxy_auth)) {
+    $request->proxy_authorization_basic($proxy_auth->[0], $proxy_auth->[1]);
+   }
+   $self->_log_request($request);
    if ($verbose >= 2) {
     warn "Sending 'send SMS' request again using uid=$uid.\n";
    }
    $response = $ua->request($request);
+   $self->_log_response($response);
    if (substr($response->code(),0,1) eq '2') {
     if ($verbose >= 2) {
      warn "Send OK.\n";
@@ -250,6 +286,33 @@ sub send_text {
  return 0;
 }
 
+sub _log_request {
+ my $self = shift;
+ my $request = shift;
+ my $logfile = $self->{'_logfile'};
+ if (defined($logfile)) {
+  my $f;
+  unless(open($f,">>$logfile")) {
+   croak("Failed to append to log file $logfile!\n");
+  }
+  print $f '====== REQUEST ' . ++$counter . " ======\n" . $request->as_string() . "\n";
+  close($f);
+ }
+}
+
+sub _log_response {
+ my $self = shift;
+ my $response = shift;
+ my $logfile = $self->{'_logfile'};
+ if (defined($logfile)) {
+  my $f;
+  unless(open($f,">>$logfile")) {
+   croak("Failed to append to log file $logfile!\n");
+  }
+  print $f "====== RESPONSE $counter ======\n" . $response->as_string() . "\n";
+  close($f);
+ }
+}
 
 __END__
 
@@ -288,13 +351,13 @@ This package contains a class sending SMS's via the free SMS service of
 www.12move.nl. It supports multiple user accounts. It can also maintain a
 persistent state hash in which the state of the user accounts is saved so
 that login's aren't always necessary etc. Unfortunately this web based
-service takes a few minutes to send an SMS, but a least it works (for now).
+service takes a few minutes to send an SMS, but at least it works (for now).
 
 =head1 CLASS METHODS
 
 =over 4
 
-=item new ('USERS' => $users, 'STATE' => $state, 'PROXY' => $proxy, 'VERBOSE' => $level);
+=item new ('USERS' => $users, 'STATE' => $state, 'PROXY' => $proxy, 'PROXY_AUTH' => [$usr,$pwd], 'VERBOSE' => $level, 'LOGFILE' => $filename);
 
 Returns a new Net::SMS::12Move object.
 
@@ -312,9 +375,16 @@ hash can be saved to and read from a file. See L<Tie::Persistent>.
 B<PROXY> Optional. If specified, then it must be a HTTP proxy URL such as
 'http://www.myproxy.com:8080/'. Default is no proxy.
 
+B<PROXY_AUTH> Optional. If specified, then it must be a reference to an
+array with elements username, password for proxies that require
+authentication. Default is no proxy authentication.
+
 B<VERBOSE> Optional. If specified, it must contain an integer between 0 and
 2 where 0 is no verbosity at all, 1 means print only warnings to STDERR,
 and 2 means print all messages to STDERR. Default value is 1.
+
+B<LOGFILE> Optional. If specified, it must contain the name of the file to
+log all HTTP requests and responses too. Default is no logging.
 
 =back
 
@@ -337,6 +407,10 @@ message to send.
 =item Version 0.01  2002-01-15
 
 Initial version.
+
+=item Version 0.02  2002-01-17
+
+Added support for proxy authentication and HTTP logging.
 
 =back
 
